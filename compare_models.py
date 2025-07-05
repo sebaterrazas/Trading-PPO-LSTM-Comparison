@@ -138,15 +138,24 @@ def test_lstm_enhanced(data, model_path="trained_models/lstm_momentum_final.pth"
     
     try:
         # Import LSTM components
-        from lstm_trading import AttentionLSTM, MomentumLSTMStrategy
+        #from lstm_trading import AttentionLSTM, MomentumLSTMStrategy
+        from lstm_trading import DualStageAttentionLSTM, MomentumLSTMStrategy
         
         checkpoint = torch.load(model_path, weights_only=False)
         
         # Create model with professional architecture
-        model = AttentionLSTM(
-            input_size=21,  # 21 advanced features
+        #model = AttentionLSTM(
+        #    input_size=21,  # 21 advanced features
+        #    hidden_size=256,
+        #    num_layers=3,
+        #    dropout=0.4,
+        #    num_heads=8
+        #)
+        model = DualStageAttentionLSTM(
+            input_size=25,  # 25 features in the trained model
             hidden_size=256,
-            num_layers=3,
+            extractor_layers=2,
+            summarizer_layers=1,
             dropout=0.4,
             num_heads=8
         )
