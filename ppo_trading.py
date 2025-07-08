@@ -16,8 +16,14 @@ import yfinance as yf
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
+import math
 import warnings
+from typing import Dict, List, Tuple, Optional, Union, Any
 warnings.filterwarnings('ignore')
+
 
 def get_fama_french_features(data):
     """Calculate Fama-French factors and additional features"""
@@ -228,9 +234,86 @@ def load_sp500_data():
     
     return train_data, val_data, test_data
 
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.1):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        
+        pe = torch.zeros(1, max_len, d_model)  # Changed to 3D tensor
+        
+        # Apply sine to even indices and cosine to odd indices
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
+        
+        # Register buffer so it's not considered a model parameter
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Tensor, shape [batch_size, seq_len, embedding_dim]
+        """
+        # Add positional encoding for each position in the sequence
+        x = x + self.pe[:, :x.size(1), :]
+        return self.dropout(x)
+
+
+class TransformerFeaturesExtractor(nn.Module):
+    """Feature extractor using Transformer architecture"""
+    def __init__(self, observation_space: gym.Space, features_dim: int = 128, nhead: int = 4, 
+                 num_layers: int = 3, dropout: float = 0.1):
+        super().__init__()
+        self.features_dim = features_dim
+        
+        # Input projection
+        self.input_dim = observation_space.shape[0]  # 2 (balance, shares) + num_features
+        self.input_proj = nn.Linear(self.input_dim, features_dim)
+        
+        # Positional encoding
+        self.pos_encoder = PositionalEncoding(features_dim)
+        
+        # Transformer encoder
+        encoder_layers = TransformerEncoderLayer(
+            d_model=features_dim,
+            nhead=nhead,
+            dim_feedforward=4*features_dim,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.transformer = TransformerEncoder(encoder_layers, num_layers)
+        
+        # Output projection
+        self.output_proj = nn.Linear(features_dim, features_dim)
+        
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        # Add sequence dimension if needed
+        if len(observations.shape) == 2:
+            observations = observations.unsqueeze(1)  # [batch_size, 1, features]
+        
+        # Project input
+        x = self.input_proj(observations)
+        
+        # Add positional encoding
+        x = x.permute(1, 0, 2)  # [seq_len, batch, features] for positional encoding
+        x = self.pos_encoder(x)
+        x = x.permute(1, 0, 2)  # Back to [batch, seq_len, features]
+        
+        # Transformer expects [batch, seq_len, features]
+        x = self.transformer(x)
+        
+        # Take the output from the last position
+        x = x[:, -1, :]
+        
+        # Project to feature space
+        features = self.output_proj(x)
+        return features
+
 def train_enhanced_ppo():
-    """Train enhanced PPO model"""
-    print("🚀 Training Enhanced PPO (Based on ICML Paper)...")
+    """Train enhanced PPO model with Transformer"""
+    print("🚀 Training Enhanced PPO with Transformer...")
     
     # Load data
     train_data, val_data, test_data = load_sp500_data()
@@ -239,10 +322,27 @@ def train_enhanced_ppo():
     env = PaperTradingEnv(train_data)
     env = DummyVecEnv([lambda: env])
     
-    # Enhanced PPO parameters (closer to paper)
+    # Policy kwargs for Transformer
+    policy_kwargs = {
+        'features_extractor_class': TransformerFeaturesExtractor,
+        'features_extractor_kwargs': {
+            'features_dim': 128,
+            'nhead': 4,
+            'num_layers': 3,
+            'dropout': 0.1
+        },
+        'net_arch': [
+            dict(pi=[64, 64], vf=[64, 64])  # Policy and value networks
+        ],
+        'activation_fn': nn.Tanh,
+        'ortho_init': True
+    }
+    
+    # Create model with Transformer policy
     model = PPO(
         "MlpPolicy",
         env,
+        policy_kwargs=policy_kwargs,
         learning_rate=3e-4,
         n_steps=2048,
         batch_size=64,
@@ -250,19 +350,24 @@ def train_enhanced_ppo():
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
+        clip_range_vf=None,
         ent_coef=0.01,
         vf_coef=0.5,
         max_grad_norm=0.5,
+        use_sde=False,
+        sde_sample_freq=-1,
+        target_kl=0.1,
+        tensorboard_log="./tensorboard_enhanced_ppo/",
         verbose=1,
-        tensorboard_log="./tensorboard_enhanced_ppo/"
+        device='auto'
     )
     
     # Train model
-    print("🔥 Training PPO with segmented actions and Fama-French features...")
+    print("🔥 Training PPO with Transformer and Fama-French features...")
     model.learn(total_timesteps=100000, progress_bar=True)
     
     # Save model
-    model_path = "trained_models/enhanced_ppo_paper"
+    model_path = "trained_models/transformer_ppo_trader"
     model.save(model_path)
     print(f"✅ Model saved as {model_path}")
     
@@ -353,7 +458,7 @@ def main():
     print(f"🎯 Activity: {test_results['activity']:.1f}%")
     
     # Compare with benchmark
-    sp500_return = ((test_data['Close'].iloc[-1] / test_data['Close'].iloc[0]) - 1) * 100
+    sp500_return = float(((test_data['Close'].iloc[-1] / test_data['Close'].iloc[0]) - 1) * 100)
     print(f"\n📊 S&P 500 Benchmark: {sp500_return:.2f}%")
     print(f"🚀 Outperformance: {test_results['return'] - sp500_return:.2f}%")
     
