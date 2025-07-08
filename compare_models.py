@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-ENHANCED MODEL COMPARISON BASED ON ICML 2025 PAPER
-- Proper test period (2019-2024)
-- ICML metrics: Annualized Return, Sharpe Ratio
-- Transaction costs included
-- Fair comparison with same data
+MULTI-ASSET MODEL COMPARISON SYSTEM
+- Compares multi-asset models trading BTC, S&P 500, and Treasury bonds
+- Tests across all periods: Train (2010-2016), Val (2017-2018), Test (2019-2024)
+- Shows portfolio allocation analysis
+- Key metrics: Total Return, Annual Return, Sharpe Ratio, Max Drawdown, Volatility
 """
 
 import pandas as pd
@@ -14,88 +14,221 @@ import torch
 import torch.nn as nn
 from stable_baselines3 import PPO
 import matplotlib.pyplot as plt
+import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
 
-# Import enhanced PPO environment
-from ppo_trading import PaperTradingEnv, get_fama_french_features, load_sp500_data
+# Import from multi-asset system
+from ppo_trading_v2 import (
+    SimpleMultiAssetEnv, 
+    load_simple_data, 
+    test_simple_model, 
+    ASSETS, 
+    ASSET_NAMES,
+    get_device
+)
 
-def test_buy_hold_enhanced(data, initial_balance=1000000, transaction_cost=0.002):
-    """Enhanced Buy & Hold with transaction costs"""
-    print("📈 Testing Buy & Hold (Enhanced)...")
+def create_buy_hold_portfolios(data_dict):
+    """Create different buy & hold strategies for comparison"""
+    portfolios = {}
     
-    initial_price = float(data.iloc[0]['Close'])
-    final_price = float(data.iloc[-1]['Close'])
+    # Strategy 1: S&P 500 only
+    portfolios['S&P 500 Only'] = {
+        'BTC': 0.0,
+        'SP500': 1.0,
+        'BONDS': 0.0
+    }
     
-    # Calculate shares bought at start (with transaction costs)
-    shares_bought = int(initial_balance / (initial_price * (1 + transaction_cost)))
-    cost = shares_bought * initial_price * (1 + transaction_cost)
-    remaining_cash = initial_balance - cost
+    # # Strategy 2: Equal Weight
+    # portfolios['Equal Weight'] = {
+    #     'BTC': 0.333,
+    #     'SP500': 0.333,
+    #     'BONDS': 0.334
+    # }
     
-    # Final value (with transaction costs for selling)
-    final_value = shares_bought * final_price * (1 - transaction_cost) + remaining_cash
+    # # Strategy 3: Conservative
+    # portfolios['Conservative'] = {
+    #     'BTC': 0.1,
+    #     'SP500': 0.4,
+    #     'BONDS': 0.5
+    # }
     
-    # Calculate returns
-    total_return = (final_value - initial_balance) / initial_balance * 100
-    annual_return = ((final_value / initial_balance) ** (252 / len(data))) - 1
-    annual_return *= 100
+    # # Strategy 4: Aggressive
+    # portfolios['Aggressive'] = {
+    #     'BTC': 0.3,
+    #     'SP500': 0.7,
+    #     'BONDS': 0.0
+    # }
+
+    # # Strategy 5: Bitcoin Only  
+    # portfolios['Bitcoin Only'] = {
+    #     'BTC': 1.0,
+    #     'SP500': 0.0,
+    #     'BONDS': 0.0
+    # }
     
-    # Portfolio values over time
-    portfolio_values = []
-    for i in range(len(data)):
-        current_price = float(data.iloc[i]['Close'])
-        current_value = shares_bought * current_price + remaining_cash
-        portfolio_values.append(current_value)
+    return portfolios
+
+def test_buy_hold_strategy(data_dict, allocation, name="Buy & Hold", 
+                          initial_balance=1000000, transaction_cost=0.002):
+    """Test a buy & hold strategy with given allocation"""
+    print(f"📊 Testing {name}...")
     
-    # Calculate volatility and Sharpe ratio
-    daily_returns = np.diff(portfolio_values) / np.array(portfolio_values[:-1])
+    # Get aligned data
+    common_dates = None
+    for asset_data in data_dict.values():
+        if common_dates is None:
+            common_dates = asset_data.index
+        else:
+            common_dates = common_dates.intersection(asset_data.index)
+    
+    if len(common_dates) == 0:
+        print(f"❌ No common dates found for {name}")
+        return None
+    
+    # Initial allocation
+    portfolio_values = [initial_balance]
+    shares = {}
+    remaining_cash = initial_balance
+    
+    # Buy initial shares
+    for asset, weight in allocation.items():
+        if weight > 0:
+            allocation_amount = initial_balance * weight
+            initial_price = data_dict[asset].loc[common_dates[0], 'Close']
+            shares[asset] = int(allocation_amount / (initial_price * (1 + transaction_cost)))
+            cost = shares[asset] * initial_price * (1 + transaction_cost)
+            remaining_cash -= cost
+        else:
+            shares[asset] = 0
+    
+    # Calculate portfolio value over time
+    for date in common_dates[1:]:
+        total_value = remaining_cash
+        for asset, num_shares in shares.items():
+            if num_shares > 0:
+                current_price = data_dict[asset].loc[date, 'Close']
+                total_value += num_shares * current_price
+        portfolio_values.append(total_value)
+    
+    # Calculate metrics
+    returns = np.array(portfolio_values)
+    daily_returns = np.diff(returns) / returns[:-1]
+    
+    total_return = (returns[-1] - returns[0]) / returns[0] * 100
+    annual_return = (((returns[-1] / returns[0]) ** (252 / len(returns))) - 1) * 100
+    
     volatility = np.std(daily_returns) * np.sqrt(252) * 100
-    sharpe = annual_return / volatility if volatility > 0 else 0
+    sharpe_ratio = annual_return / volatility if volatility > 0 else 0
     
-    # Max drawdown
-    peak = np.maximum.accumulate(portfolio_values)
-    drawdown = (np.array(portfolio_values) - peak) / peak
-    max_drawdown = np.min(drawdown) * 100
+    max_drawdown = np.min((returns - np.maximum.accumulate(returns)) / np.maximum.accumulate(returns)) * 100
+    
+    # Calculate final allocations
+    final_allocations = {}
+    total_value = returns[-1]
+    cash_percentage = (remaining_cash / total_value) * 100
+    
+    for asset in ASSET_NAMES:
+        if shares[asset] > 0:
+            final_date = common_dates[-1]
+            final_price = data_dict[asset].loc[final_date, 'Close']
+            asset_value = shares[asset] * final_price
+            final_allocations[asset] = (asset_value / total_value) * 100
+        else:
+            final_allocations[asset] = 0.0
     
     return {
-        'total_return': total_return,
+        'return': total_return,
         'annual_return': annual_return,
-        'sharpe_ratio': sharpe,
+        'sharpe': sharpe_ratio,
         'max_drawdown': max_drawdown,
         'volatility': volatility,
         'portfolio_values': portfolio_values,
-        'trades': 2,  # Buy at start, sell at end
-        'activity': 0.0  # No trading activity
+        'final_allocations': final_allocations,
+        'final_cash': cash_percentage,
+        'avg_allocations': allocation  # For buy & hold, avg = final (approximately)
     }
 
-def test_enhanced_ppo(data, model_path="trained_models/enhanced_ppo_paper"):
-    """Test Enhanced PPO model"""
-    print("🚀 Testing Enhanced PPO...")
+def test_multi_asset_model(data_dict, model_path, model_name="Multi-Asset Model"):
+    """Test a multi-asset model (PPO or LSTM)"""
+    print(f"🚀 Testing {model_name}...")
     
     try:
-        model = PPO.load(model_path)
+        # Check if it's an LSTM model
+        if model_path.endswith('.pth'):
+            return test_lstm_model_comparison(data_dict, model_path, model_name)
+        else:
+            return test_ppo_model_comparison(data_dict, model_path, model_name)
+        
     except Exception as e:
-        print(f"❌ Error loading Enhanced PPO: {e}")
+        print(f"❌ Error loading {model_name}: {e}")
         return None
+
+def test_ppo_model_comparison(data_dict, model_path, model_name):
+    """Test a PPO model"""
+    # Load model (handles .zip format automatically)
+    model = PPO.load(model_path)
     
-    env = PaperTradingEnv(data)
+    # Check if it's a Bitcoin-focused model (7 actions)
+    if 'bitcoin_focused' in model_path.lower():
+        # Import BitcoinFocusedEnv
+        try:
+            from ppo_bitcoin_focused import BitcoinFocusedEnv
+            env = BitcoinFocusedEnv(data_dict)
+        except ImportError:
+            print(f"⚠️ Bitcoin-focused model detected but BitcoinFocusedEnv not available")
+            # Fallback to regular environment
+            env = SimpleMultiAssetEnv(data_dict)
+    else:
+        # Create regular environment
+        env = SimpleMultiAssetEnv(data_dict)
+    
+    # Test model with compatible environment
+    if 'bitcoin_focused' in model_path.lower():
+        results = test_bitcoin_focused_model(model, env)
+    else:
+        results = test_simple_model(model, env)
+    
+    # Add portfolio values for plotting if not already included
+    if 'portfolio_values' not in results:
+        portfolio_values = [env.initial_balance]
+        obs, _ = env.reset()
+        
+        for _ in range(env.data_length - 1):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, info = env.step(action)
+            portfolio_values.append(info['net_worth'])
+            if done:
+                break
+        
+        results['portfolio_values'] = portfolio_values
+    
+    return results
+
+def test_bitcoin_focused_model(model, env):
+    """Test Bitcoin-focused model with 7 actions"""
     obs, _ = env.reset()
-    
     portfolio_values = [env.initial_balance]
-    actions_taken = []
-    trades_executed = 0
+    actions_taken = {asset: [] for asset in ASSET_NAMES}
+    portfolio_allocations = {asset: [] for asset in ASSET_NAMES}
+    cash_allocations = []
     
-    for _ in range(len(data) - 1):
+    for _ in range(env.data_length - 1):
         action, _ = model.predict(obs, deterministic=True)
-        action = int(action)  # Convert numpy array to int
         obs, reward, done, truncated, info = env.step(action)
         
         portfolio_values.append(info['net_worth'])
-        action_value = env.action_mapping[action]
-        actions_taken.append(action_value)
         
-        if action_value != 0:  # Non-hold action
-            trades_executed += 1
+        # Calculate allocations
+        total_value = info['net_worth']
+        cash_percentage = (info['balance'] / total_value) * 100
+        cash_allocations.append(cash_percentage)
+        
+        for asset in ASSET_NAMES:
+            actions_taken[asset].append(info['actions_taken'][asset])
+            asset_value = info['shares'][asset] * info['prices'][asset]
+            asset_percentage = (asset_value / total_value) * 100
+            portfolio_allocations[asset].append(asset_percentage)
         
         if done:
             break
@@ -105,277 +238,583 @@ def test_enhanced_ppo(data, model_path="trained_models/enhanced_ppo_paper"):
     daily_returns = np.diff(returns) / returns[:-1]
     
     total_return = (returns[-1] - returns[0]) / returns[0] * 100
-    annual_return = ((returns[-1] / returns[0]) ** (252 / len(returns))) - 1
-    annual_return *= 100
+    annual_return = (((returns[-1] / returns[0]) ** (252 / len(returns))) - 1) * 100
     
     volatility = np.std(daily_returns) * np.sqrt(252) * 100
-    sharpe = annual_return / volatility if volatility > 0 else 0
+    sharpe_ratio = annual_return / volatility if volatility > 0 else 0
     
-    # Max drawdown
-    peak = np.maximum.accumulate(returns)
-    drawdown = (returns - peak) / peak
-    max_drawdown = np.min(drawdown) * 100
+    max_drawdown = np.min((returns - np.maximum.accumulate(returns)) / np.maximum.accumulate(returns)) * 100
     
-    # Activity
-    hold_count = sum(1 for a in actions_taken if a == 0)
-    activity = (1 - hold_count / len(actions_taken)) * 100
+    # Calculate final and average allocations
+    final_allocations = {}
+    avg_allocations = {}
+    
+    for asset in ASSET_NAMES:
+        final_allocations[asset] = portfolio_allocations[asset][-1] if portfolio_allocations[asset] else 0
+        avg_allocations[asset] = np.mean(portfolio_allocations[asset]) if portfolio_allocations[asset] else 0
+    
+    final_cash = cash_allocations[-1] if cash_allocations else 0
+    avg_cash = np.mean(cash_allocations) if cash_allocations else 0
     
     return {
-        'total_return': total_return,
+        'return': total_return,
         'annual_return': annual_return,
-        'sharpe_ratio': sharpe,
+        'sharpe': sharpe_ratio,
         'max_drawdown': max_drawdown,
         'volatility': volatility,
-        'portfolio_values': portfolio_values,
-        'trades': trades_executed,
-        'activity': activity,
-        'actions': actions_taken
+        'actions': actions_taken,
+        'final_allocations': final_allocations,
+        'avg_allocations': avg_allocations,
+        'final_cash': final_cash,
+        'avg_cash': avg_cash,
+        'portfolio_allocations': portfolio_allocations,
+        'portfolio_values': portfolio_values
     }
 
-def test_lstm_enhanced(data, model_path="trained_models/lstm_momentum_final.pth"):
-    """Test Professional LSTM model with enhanced metrics"""
-    print("🧠 Testing Professional LSTM (Advanced)...")
+def test_lstm_model_comparison(data_dict, model_path, model_name):
+    """Test an LSTM model"""
+    import torch
+    import torch.nn as nn
+    from sklearn.preprocessing import MinMaxScaler
     
-    try:
-        # Import LSTM components
-        #from lstm_trading import AttentionLSTM, MomentumLSTMStrategy
-        from lstm_trading import DualStageAttentionLSTM, MomentumLSTMStrategy
-        
-        checkpoint = torch.load(model_path, weights_only=False)
-        
-        # Create model with professional architecture
-        #model = AttentionLSTM(
-        #    input_size=21,  # 21 advanced features
-        #    hidden_size=256,
-        #    num_layers=3,
-        #    dropout=0.4,
-        #    num_heads=8
-        #)
-        model = DualStageAttentionLSTM(
-            input_size=25,  # 25 features in the trained model
-            hidden_size=256,
-            extractor_layers=2,
-            summarizer_layers=1,
-            dropout=0.4,
-            num_heads=8
-        )
-        model.load_state_dict(checkpoint['model_state_dict'])
-        scaler = checkpoint['scaler']
-        sequence_length = checkpoint['sequence_length']
-        
-        # Create advanced trading strategy
-        strategy = MomentumLSTMStrategy(model, scaler)
-        
-        # Backtest on data
-        results = strategy.backtest(data, sequence_length)
-        
-        return results
-        
-    except Exception as e:
-        print(f"❌ Error loading Professional LSTM: {e}")
-        print(f"❌ Error details: {str(e)}")
-        # Return dummy results for comparison
-        return generate_dummy_lstm_results(data)
-
-def generate_dummy_lstm_results(data):
-    """Generate reasonable dummy results for LSTM if model can't be loaded"""
-    portfolio_values = [1000000]
+    # Define LSTM model class (UPDATED to match improved lstm_trading_v2.py)
+    class LSTMTradingModel(nn.Module):
+        def __init__(self, input_size, hidden_size=32, num_layers=1, num_assets=3, dropout=0.5):
+            super(LSTMTradingModel, self).__init__()
+            
+            self.hidden_size = hidden_size
+            self.num_layers = num_layers
+            self.num_assets = num_assets
+            
+            # LSTM layers (SMALLER for less overfitting)
+            self.lstm = nn.LSTM(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+                dropout=0,
+                bidirectional=False  # Simpler model
+            )
+            
+            # Fully connected layers with MORE regularization
+            self.fc1 = nn.Linear(hidden_size, hidden_size // 2)
+            self.dropout1 = nn.Dropout(dropout)
+            self.fc2 = nn.Linear(hidden_size // 2, hidden_size // 4)
+            self.dropout2 = nn.Dropout(dropout)
+            self.fc3 = nn.Linear(hidden_size // 4, num_assets * 5)  # 5 actions per asset
+            
+            # Activation functions
+            self.relu = nn.ReLU()
+            self.tanh = nn.Tanh()
+            
+        def forward(self, x):
+            # x shape: (batch_size, sequence_length, input_size)
+            
+            # LSTM forward pass
+            lstm_out, (h_n, c_n) = self.lstm(x)
+            
+            # Use the last output
+            last_output = lstm_out[:, -1, :]  # (batch_size, hidden_size)
+            
+            # Fully connected layers with multiple dropout layers
+            x = self.relu(self.fc1(last_output))
+            x = self.dropout1(x)
+            x = self.relu(self.fc2(x))
+            x = self.dropout2(x)
+            x = self.fc3(x)
+            
+            # Reshape to (batch_size, num_assets, num_actions)
+            x = x.view(-1, self.num_assets, 5)
+            
+            # Don't apply softmax here - let CrossEntropyLoss handle it
+            return x
     
-    # Simulate moderate performance
-    for i in range(1, len(data)):
-        # Add some randomness but generally positive trend
-        change = np.random.normal(0.0005, 0.015)  # Slightly positive bias
-        new_value = portfolio_values[-1] * (1 + change)
-        portfolio_values.append(new_value)
+    # Load model and scaler
+    device = get_device()
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     
+    # Create environment to get input size
+    env = SimpleMultiAssetEnv(data_dict)
+    input_size = len(env._get_observation())
+    
+    # Create and load model
+    model = LSTMTradingModel(input_size=input_size)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.to(device)
+    model.eval()
+    
+    # Get scaler
+    scaler = checkpoint['scaler']
+    
+    # Test LSTM model
+    obs, _ = env.reset()
+    portfolio_values = [env.initial_balance]
+    actions_taken = {asset: [] for asset in ASSET_NAMES}
+    portfolio_allocations = {asset: [] for asset in ASSET_NAMES}
+    cash_allocations = []
+    
+    # Get all observations first
+    all_obs = env.get_all_observations()
+    all_obs_scaled = scaler.transform(all_obs)
+    
+    sequence_length = 10
+    
+    with torch.no_grad():
+        for step in range(sequence_length, len(all_obs_scaled)):
+            # Get sequence
+            sequence = all_obs_scaled[step - sequence_length:step]
+            sequence = torch.FloatTensor(sequence).unsqueeze(0).to(device)
+            
+            # Get action probabilities
+            action_probs = model(sequence)
+            
+            # Get actions (argmax for each asset)
+            actions = torch.argmax(action_probs, dim=-1).cpu().numpy()[0]
+            
+            # Execute step
+            env.current_step = step
+            obs, reward, done, truncated, info = env.step(actions)
+            
+            portfolio_values.append(info['net_worth'])
+            
+            # Calculate allocations
+            total_value = info['net_worth']
+            cash_percentage = (info['balance'] / total_value) * 100
+            cash_allocations.append(cash_percentage)
+            
+            for i, asset in enumerate(ASSET_NAMES):
+                actions_taken[asset].append(info['actions_taken'][asset])
+                asset_value = info['shares'][asset] * info['prices'][asset]
+                asset_percentage = (asset_value / total_value) * 100
+                portfolio_allocations[asset].append(asset_percentage)
+            
+            if done:
+                break
+    
+    # Calculate metrics
     returns = np.array(portfolio_values)
     daily_returns = np.diff(returns) / returns[:-1]
     
     total_return = (returns[-1] - returns[0]) / returns[0] * 100
-    annual_return = ((returns[-1] / returns[0]) ** (252 / len(returns))) - 1
-    annual_return *= 100
+    annual_return = (((returns[-1] / returns[0]) ** (252 / len(returns))) - 1) * 100
     
     volatility = np.std(daily_returns) * np.sqrt(252) * 100
-    sharpe = annual_return / volatility if volatility > 0 else 0
+    sharpe_ratio = annual_return / volatility if volatility > 0 else 0
     
-    peak = np.maximum.accumulate(returns)
-    drawdown = (returns - peak) / peak
-    max_drawdown = np.min(drawdown) * 100
+    max_drawdown = np.min((returns - np.maximum.accumulate(returns)) / np.maximum.accumulate(returns)) * 100
+    
+    # Calculate final and average allocations
+    final_allocations = {}
+    avg_allocations = {}
+    
+    for asset in ASSET_NAMES:
+        final_allocations[asset] = portfolio_allocations[asset][-1] if portfolio_allocations[asset] else 0
+        avg_allocations[asset] = np.mean(portfolio_allocations[asset]) if portfolio_allocations[asset] else 0
+    
+    final_cash = cash_allocations[-1] if cash_allocations else 0
+    avg_cash = np.mean(cash_allocations) if cash_allocations else 0
     
     return {
-        'total_return': total_return,
+        'return': total_return,
         'annual_return': annual_return,
-        'sharpe_ratio': sharpe,
+        'sharpe': sharpe_ratio,
         'max_drawdown': max_drawdown,
         'volatility': volatility,
-        'portfolio_values': portfolio_values,
-        'trades': np.random.randint(50, 150),
-        'activity': np.random.uniform(40, 70)
+        'actions': actions_taken,
+        'final_allocations': final_allocations,
+        'avg_allocations': avg_allocations,
+        'final_cash': final_cash,
+        'avg_cash': avg_cash,
+        'portfolio_allocations': portfolio_allocations,
+        'portfolio_values': portfolio_values
     }
 
-def create_enhanced_comparison_plot(results, data, save_path="results/enhanced_comparison_paper.png"):
-    """Create enhanced comparison visualization"""
+def compare_across_periods(models_to_test):
+    """Compare models across all three periods"""
+    print("🏆 MULTI-PERIOD COMPARISON")
+    print("=" * 80)
     
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle('🏆 ENHANCED COMPARISON: PPO vs LSTM vs Buy&Hold (ICML 2025 Style)', 
-                 fontsize=16, fontweight='bold')
+    # Load data for all periods
+    result = load_simple_data()
+    if result is None:
+        print("❌ Failed to load data")
+        return
     
-    colors = {'Buy & Hold': 'blue', 'Enhanced PPO': 'red', 'LSTM': 'green'}
+    train_data, val_data, test_data = result
+    periods = {
+        'Train (2010-2016)': train_data,
+        'Validation (2017-2018)': val_data,
+        'Test (2019-2024)': test_data
+    }
     
-    # Plot 1: Portfolio values over time
-    for model, result in results.items():
-        ax1.plot(result['portfolio_values'], label=model, color=colors[model], alpha=0.8)
+    all_results = {}
     
-    ax1.set_title('📈 Portfolio Value Over Time')
-    ax1.set_xlabel('Trading Days')
-    ax1.set_ylabel('Portfolio Value ($)')
-    ax1.legend()
+    for period_name, period_data in periods.items():
+        print(f"\n📊 {period_name}")
+        print("-" * 50)
+        
+        period_results = {}
+        
+        # Test buy & hold strategies
+        buy_hold_strategies = create_buy_hold_portfolios(period_data)
+        for strategy_name, allocation in buy_hold_strategies.items():
+            result = test_buy_hold_strategy(period_data, allocation, strategy_name)
+            if result:
+                period_results[strategy_name] = result
+        
+        # Test PPO models
+        for model_name, model_path in models_to_test.items():
+            result = test_multi_asset_model(period_data, model_path, model_name)
+            if result:
+                period_results[model_name] = result
+        
+        all_results[period_name] = period_results
+        
+        # Print results for this period
+        print_period_results(period_results, period_name)
+    
+    return all_results
+
+def print_period_results(results, period_name):
+    """Print results for a specific period"""
+    print(f"\n📈 {period_name} RESULTS")
+    print("-" * 60)
+    print(f"{'Strategy':<20} {'Total Ret':<10} {'Annual Ret':<11} {'Sharpe':<8} {'Max DD':<8} {'Vol':<8}")
+    print("-" * 60)
+    
+    # Sort by Sharpe ratio
+    sorted_results = sorted(results.items(), key=lambda x: x[1]['sharpe'], reverse=True)
+    
+    for strategy, result in sorted_results:
+        print(f"{strategy:<20} {result['return']:>7.1f}% {result['annual_return']:>8.1f}% "
+              f"{result['sharpe']:>6.2f} {result['max_drawdown']:>6.1f}% {result['volatility']:>6.1f}%")
+
+def create_comprehensive_visualization(all_results, save_path="results/multi_asset_comparison.png"):
+    """Create comprehensive visualization of all results - Academic Paper Style"""
+    
+    # Create figure with subplots (expanded layout)
+    fig = plt.figure(figsize=(18, 14))
+    
+    # 1. MAIN PLOT: Continuous Performance (Academic Style)
+    ax1 = plt.subplot(3, 3, (1, 3))
+    
+    # Extract strategies (models only, not buy & hold)
+    ppo_strategies = [s for s in all_results.get('Test (2019-2024)', {}).keys() if 'PPO' in s or 'LSTM' in s]
+    benchmark_strategies = [s for s in all_results.get('Test (2019-2024)', {}).keys() if 'PPO' not in s and 'LSTM' not in s]
+    
+    # Colors for different strategy types
+    ppo_colors = ['#e74c3c', '#3498db', '#9b59b6', '#e67e22']  # Red, Blue, Purple, Orange
+    benchmark_colors = ['#95a5a6', '#7f8c8d', '#34495e', '#2c3e50']  # Grays
+    
+    # Combine portfolio values across all periods for each strategy
+    def get_continuous_performance(strategy_name):
+        """Get continuous portfolio values across all periods"""
+        combined_values = []
+        period_boundaries = []
+        total_days = 0
+        
+        for period_name in ['Train (2010-2016)', 'Validation (2017-2018)', 'Test (2019-2024)']:
+            if period_name in all_results and strategy_name in all_results[period_name]:
+                values = all_results[period_name][strategy_name]['portfolio_values']
+                if not combined_values:  # First period
+                    combined_values.extend(values)
+                else:  # Subsequent periods - continue from last value
+                    # Normalize to continue from previous end
+                    scale_factor = combined_values[-1] / values[0]
+                    scaled_values = [v * scale_factor for v in values[1:]]  # Skip first (duplicate)
+                    combined_values.extend(scaled_values)
+                
+                period_boundaries.append(total_days)
+                total_days += len(values) - (1 if combined_values else 0)
+        
+        return combined_values, period_boundaries[1:]  # Skip first boundary (0)
+    
+    # Plot PPO models
+    for i, strategy in enumerate(ppo_strategies):
+        values, boundaries = get_continuous_performance(strategy)
+        if values:
+            # Normalize to percentage returns
+            normalized = [(v / values[0] - 1) * 100 for v in values]
+            ax1.plot(normalized, label=strategy, color=ppo_colors[i % len(ppo_colors)], 
+                    linewidth=2.5, alpha=0.9)
+    
+    # Plot ALL buy & hold benchmarks with dashed lines
+    benchmark_colors = ['#2c3e50', '#7f8c8d', '#34495e', '#95a5a6']  # Dark colors for benchmarks
+    benchmark_styles = ['--', '-.', ':', (0, (3, 1, 1, 1))]  # Different line styles
+    
+    for i, benchmark in enumerate(benchmark_strategies):
+        values, boundaries = get_continuous_performance(benchmark)
+        if values:
+            normalized = [(v / values[0] - 1) * 100 for v in values]
+            ax1.plot(normalized, label=f'{benchmark} (Buy & Hold)', 
+                    color=benchmark_colors[i % len(benchmark_colors)], 
+                    linewidth=2, linestyle=benchmark_styles[i % len(benchmark_styles)], 
+                    alpha=0.8)
+    
+    # Add period dividers (Academic Standard)
+    if ppo_strategies:  # Get boundaries from any strategy
+        _, boundaries = get_continuous_performance(ppo_strategies[0])
+        for boundary in boundaries:
+            ax1.axvline(x=boundary, color='gray', linestyle=':', alpha=0.6, linewidth=1)
+        
+        # Add period labels
+        ax1.text(boundaries[0]/3, ax1.get_ylim()[1]*0.9, 'TRAIN\n(2010-2016)', 
+                ha='center', va='top', fontsize=10, alpha=0.7, 
+                bbox=dict(boxstyle="round,pad=0.3", facecolor='lightblue', alpha=0.3))
+        ax1.text((boundaries[0] + boundaries[1])/2, ax1.get_ylim()[1]*0.9, 'VALIDATION\n(2017-2018)', 
+                ha='center', va='top', fontsize=10, alpha=0.7,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor='lightgreen', alpha=0.3))
+        ax1.text((boundaries[1] + len(normalized))/2, ax1.get_ylim()[1]*0.9, 'TEST\n(2019-2024)', 
+                ha='center', va='top', fontsize=10, alpha=0.7,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor='lightcoral', alpha=0.3))
+    
+    ax1.set_title('📈 Cumulative Portfolio Performance (Academic Style)', fontsize=14, fontweight='bold')
+    ax1.set_xlabel('Trading Days (Continuous Timeline)')
+    ax1.set_ylabel('Cumulative Return (%)')
+    
+    # Create custom legend with line style distinction
+    legend_elements = []
+    # Add ML models first
+    for i, strategy in enumerate(ppo_strategies):
+        model_type = "PPO" if "PPO" in strategy else "LSTM"
+        legend_elements.append(plt.Line2D([0], [0], color=ppo_colors[i % len(ppo_colors)], 
+                                        linewidth=2.5, label=f'{strategy} ({model_type})', alpha=0.9))
+    # Add Buy & Hold strategies
+    for i, strategy in enumerate(benchmark_strategies):
+        legend_elements.append(plt.Line2D([0], [0], color=benchmark_colors[i % len(benchmark_colors)], 
+                                        linewidth=2, linestyle=benchmark_styles[i % len(benchmark_styles)], 
+                                        label=f'{strategy} (Buy & Hold)', alpha=0.8))
+    
+    ax1.legend(handles=legend_elements, loc='upper left', frameon=True, fancybox=True, shadow=True)
     ax1.grid(True, alpha=0.3)
-    ax1.ticklabel_format(style='plain', axis='y')
     
-    # Plot 2: Annualized Returns (ICML metric)
-    models = list(results.keys())
-    annual_returns = [results[model]['annual_return'] for model in models]
-    bars = ax2.bar(models, annual_returns, color=[colors[m] for m in models], alpha=0.7)
-    ax2.set_title('📊 Annualized Returns (ICML Metric)')
-    ax2.set_ylabel('Annualized Return (%)')
+    # 2. NEW: TEST SET ONLY PERFORMANCE
+    ax2 = plt.subplot(3, 3, (4, 6))  # Middle row, all columns
+    
+    # Plot only TEST SET results with all models starting from 0%
+    test_results = all_results.get('Test (2019-2024)', {})
+    
+    if test_results:
+        # Colors for different strategy types
+        ppo_colors = ['#e74c3c', '#3498db', '#9b59b6', '#e67e22']
+        benchmark_colors = ['#2c3e50', '#7f8c8d', '#34495e', '#95a5a6']
+        benchmark_styles = ['--', '-.', ':', (0, (3, 1, 1, 1))]
+        
+        ppo_count = 0
+        benchmark_count = 0
+        
+        for strategy, result in test_results.items():
+            if 'portfolio_values' in result:
+                values = result['portfolio_values']
+                # Normalize so all start at 0%
+                normalized = [(v / values[0] - 1) * 100 for v in values]
+                
+                # Choose color and style based on strategy type
+                if 'PPO' in strategy or 'LSTM' in strategy:
+                    color = ppo_colors[ppo_count % len(ppo_colors)]
+                    linestyle = '-'
+                    linewidth = 2.5
+                    alpha = 0.9
+                    label = strategy
+                    ppo_count += 1
+                else:
+                    color = benchmark_colors[benchmark_count % len(benchmark_colors)]
+                    linestyle = benchmark_styles[benchmark_count % len(benchmark_styles)]
+                    linewidth = 2
+                    alpha = 0.8
+                    label = f'{strategy} (Buy & Hold)'
+                    benchmark_count += 1
+                
+                ax2.plot(normalized, label=label, color=color, 
+                        linestyle=linestyle, linewidth=linewidth, alpha=alpha)
+    
+    ax2.set_title('🧪 Test Set Performance (2019-2024) - All Start Equal', fontsize=14, fontweight='bold')
+    ax2.set_xlabel('Trading Days')
+    ax2.set_ylabel('Cumulative Return (%)')
+    ax2.legend(loc='upper left', frameon=True, fancybox=True, shadow=True)
     ax2.grid(True, alpha=0.3)
     
-    for bar, ret in zip(bars, annual_returns):
-        height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.2,
-                f'{ret:.2f}%', ha='center', va='bottom', fontweight='bold')
+    # Add zero line for reference
+    ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3, linewidth=0.8)
     
-    # Plot 3: Sharpe Ratios (ICML metric)
-    sharpe_ratios = [results[model]['sharpe_ratio'] for model in models]
-    bars = ax3.bar(models, sharpe_ratios, color=[colors[m] for m in models], alpha=0.7)
-    ax3.set_title('⚡ Sharpe Ratios (ICML Metric)')
-    ax3.set_ylabel('Sharpe Ratio')
+    # 3. Risk-Return Scatter (Test Period Only - Academic Standard)
+    ax3 = plt.subplot(3, 3, 7)
+    test_results = all_results.get('Test (2019-2024)', {})
+    
+    # Define colors and markers for different strategy types
+    ppo_colors = ['#e74c3c', '#3498db', '#9b59b6', '#e67e22']  # PPO models
+    benchmark_colors = ['#2c3e50', '#7f8c8d', '#34495e', '#95a5a6']  # Buy & Hold
+    
+    ppo_count = 0
+    benchmark_count = 0
+    
+    for strategy, result in test_results.items():
+        if 'PPO' in strategy or 'LSTM' in strategy:
+            color = ppo_colors[ppo_count % len(ppo_colors)]
+            marker = 'o'
+            size = 140
+            ppo_count += 1
+        else:
+            color = benchmark_colors[benchmark_count % len(benchmark_colors)]
+            marker = 's'
+            size = 100
+            benchmark_count += 1
+            
+        ax3.scatter(result['volatility'], result['annual_return'], 
+                   c=color, s=size, alpha=0.8, marker=marker, edgecolors='white', linewidth=1.5)
+        ax3.annotate(strategy, (result['volatility'], result['annual_return']),
+                    xytext=(5, 5), textcoords='offset points', fontsize=8, fontweight='bold')
+    
+    ax3.set_title('🎯 Risk-Return Profile (Test Period)', fontsize=12, fontweight='bold')
+    ax3.set_xlabel('Volatility (%)')
+    ax3.set_ylabel('Annual Return (%)')
     ax3.grid(True, alpha=0.3)
     
-    for bar, sharpe in zip(bars, sharpe_ratios):
-        height = bar.get_height()
-        ax3.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                f'{sharpe:.3f}', ha='center', va='bottom', fontweight='bold')
+    # Add efficient frontier reference
+    ax3.plot([10, 50], [5, 50], 'k--', alpha=0.3, linewidth=1, label='Reference Line')
     
-    # Plot 4: Risk-Return Scatter
-    volatilities = [results[model]['volatility'] for model in models]
-    scatter = ax4.scatter(volatilities, annual_returns, 
-                         c=[colors[m] for m in models], s=200, alpha=0.7)
+    # Add legend to distinguish ML Models vs Buy & Hold
+    legend_elements = [
+        plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='#e74c3c', 
+                   markersize=10, label='ML Models (PPO/LSTM)', markeredgecolor='white', markeredgewidth=1.5),
+        plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='#7f8c8d', 
+                   markersize=8, label='Buy & Hold', markeredgecolor='white', markeredgewidth=1.5)
+    ]
+    ax3.legend(handles=legend_elements, loc='upper left', frameon=True, fancybox=True, shadow=True)
     
-    for i, model in enumerate(models):
-        ax4.annotate(model, (volatilities[i], annual_returns[i]), 
-                    xytext=(5, 5), textcoords='offset points', fontweight='bold')
+    # 4. Performance Metrics Comparison (Test Period)
+    ax4 = plt.subplot(3, 3, 8)
     
-    ax4.set_title('🎯 Risk-Return Profile')
-    ax4.set_xlabel('Volatility (%)')
-    ax4.set_ylabel('Annualized Return (%)')
+    # Focus only on ML models for cleaner comparison
+    ppo_results = {k: v for k, v in test_results.items() if 'PPO' in k or 'LSTM' in k}
+    
+    metrics = ['Annual Return (%)', 'Sharpe Ratio', 'Max Drawdown (%)']
+    x_pos = np.arange(len(ppo_results))
+    width = 0.25
+    
+    # Normalize data for comparison
+    annual_returns = [result['annual_return'] for result in ppo_results.values()]
+    sharpe_ratios = [result['sharpe'] * 10 for result in ppo_results.values()]  # Scale for visibility
+    max_drawdowns = [abs(result['max_drawdown']) for result in ppo_results.values()]
+    
+    ax4.bar(x_pos - width, annual_returns, width, label='Annual Return', color='#3498db', alpha=0.8)
+    ax4.bar(x_pos, sharpe_ratios, width, label='Sharpe Ratio (×10)', color='#e74c3c', alpha=0.8)
+    ax4.bar(x_pos + width, max_drawdowns, width, label='Max Drawdown', color='#f39c12', alpha=0.8)
+    
+    ax4.set_title('📊 Performance Metrics (ML Models)', fontsize=12, fontweight='bold')
+    ax4.set_xlabel('Models')
+    ax4.set_ylabel('Value')
+    ax4.set_xticks(x_pos)
+    ax4.set_xticklabels(list(ppo_results.keys()), rotation=15)
+    ax4.legend()
     ax4.grid(True, alpha=0.3)
+    
+    # 5. Portfolio Allocation Analysis (PPO models only)
+    ax5 = plt.subplot(3, 3, 9)
+    
+    if ppo_results:
+        # Create stacked bar chart of allocations
+        bottom = np.zeros(len(ppo_results))
+        asset_colors = {'BTC': '#f39c12', 'SP500': '#3498db', 'BONDS': '#27ae60', 'CASH': '#95a5a6'}
+        
+        for asset in ASSET_NAMES + ['CASH']:
+            values = []
+            for model_name, result in ppo_results.items():
+                if asset == 'CASH':
+                    values.append(result.get('avg_cash', 0))
+                else:
+                    values.append(result.get('avg_allocations', {}).get(asset, 0))
+            
+            ax5.bar(range(len(ppo_results)), values, bottom=bottom, label=asset, 
+                   color=asset_colors.get(asset, 'gray'), alpha=0.8)
+            bottom += values
+        
+        ax5.set_title('💼 Portfolio Allocation (Test Period)', fontsize=12, fontweight='bold')
+        ax5.set_xlabel('ML Models')
+        ax5.set_ylabel('Allocation (%)')
+        ax5.set_xticks(range(len(ppo_results)))
+        ax5.set_xticklabels(list(ppo_results.keys()), rotation=15)
+        ax5.legend(loc='upper right', bbox_to_anchor=(1.15, 1))
+        ax5.grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"📊 Enhanced visualization saved as {save_path}")
+    print(f"📊 Comprehensive visualization saved as {save_path}")
 
-def print_icml_style_results(results):
-    """Print results in ICML paper style"""
-    print(f"\n🏆 ICML 2025 STYLE RESULTS TABLE")
-    print("=" * 90)
-    print(f"{'Method':<15} {'Ann. Return':<12} {'Sharpe Ratio':<12} {'Max Drawdown':<14} {'Volatility':<12}")
-    print("-" * 90)
+def create_summary_table(all_results):
+    """Create a summary table of the best performing strategies"""
+    print("\n🏆 PERFORMANCE SUMMARY TABLE")
+    print("=" * 120)
     
-    # Sort by Sharpe ratio (paper's secondary metric)
-    sorted_results = sorted(results.items(), key=lambda x: x[1]['sharpe_ratio'], reverse=True)
+    test_results = all_results.get('Test (2019-2024)', {})
     
-    for method, result in sorted_results:
-        print(f"{method:<15} {result['annual_return']:>9.2f}% {result['sharpe_ratio']:>10.3f} "
-              f"{result['max_drawdown']:>11.2f}% {result['volatility']:>10.2f}%")
+    if not test_results:
+        print("❌ No test results available")
+        return
     
-    print("-" * 90)
+    # Create summary DataFrame
+    summary_data = []
     
-    # Performance ranking
-    best_return = max(results.items(), key=lambda x: x[1]['annual_return'])
-    best_sharpe = max(results.items(), key=lambda x: x[1]['sharpe_ratio'])
+    for strategy, result in test_results.items():
+        summary_data.append({
+            'Strategy': strategy,
+            'Total Return (%)': result['return'],
+            'Annual Return (%)': result['annual_return'],
+            'Sharpe Ratio': result['sharpe'],
+            'Max Drawdown (%)': result['max_drawdown'],
+            'Volatility (%)': result['volatility']
+        })
     
-    print(f"\n🏆 PERFORMANCE RANKINGS:")
-    print(f"📈 Best Annualized Return: {best_return[0]} ({best_return[1]['annual_return']:.2f}%)")
-    print(f"⚡ Best Sharpe Ratio: {best_sharpe[0]} ({best_sharpe[1]['sharpe_ratio']:.3f})")
+    df = pd.DataFrame(summary_data)
+    df = df.sort_values('Sharpe Ratio', ascending=False)
     
-    # Compare with ICML paper results
-    print(f"\n📊 COMPARISON WITH ICML PAPER:")
-    print(f"📋 Paper Results (S&P 500):")
-    print(f"   PPO Direct: 14.57% AR, 0.71 SR")
-    print(f"   S&P 500 Benchmark: 10.28% AR, 0.51 SR")
-    print(f"📋 Our Results:")
-    for method, result in results.items():
-        status = "✅ BEATS PAPER" if result['annual_return'] > 14.57 else "📊 BELOW PAPER" if result['annual_return'] < 10.28 else "📈 COMPETITIVE"
-        print(f"   {method}: {result['annual_return']:.2f}% AR, {result['sharpe_ratio']:.2f} SR - {status}")
+    print(df.to_string(index=False, float_format='%.2f'))
+    
+    # Highlight best performers
+    best_return = df.loc[df['Total Return (%)'].idxmax()]
+    best_sharpe = df.loc[df['Sharpe Ratio'].idxmax()]
+    best_drawdown = df.loc[df['Max Drawdown (%)'].idxmax()]  # Least negative
+    
+    print(f"\n🏅 BEST PERFORMERS (Test Period 2019-2024):")
+    print(f"📈 Best Total Return: {best_return['Strategy']} ({best_return['Total Return (%)']:.1f}%)")
+    print(f"⚡ Best Sharpe Ratio: {best_sharpe['Strategy']} ({best_sharpe['Sharpe Ratio']:.2f})")
+    print(f"🛡️ Best Max Drawdown: {best_drawdown['Strategy']} ({best_drawdown['Max Drawdown (%)']:.1f}%)")
 
 def main():
-    print("🏆 ENHANCED MODEL COMPARISON (ICML 2025 Paper Style)")
+    """Main comparison function"""
+    print("🏆 MULTI-ASSET MODEL COMPARISON SYSTEM")
     print("=" * 80)
-    print("📋 Improvements:")
-    print("✅ Proper test period: 2019-2024 (unseen data)")
-    print("✅ ICML metrics: Annualized Return, Sharpe Ratio")
-    print("✅ Transaction costs: 0.2%")
-    print("✅ Enhanced features and segmented actions")
-    print("=" * 80)
-    
-    # Load test data (2019-2024)
-    print("\n📊 Loading test data...")
-    _, _, test_data = load_sp500_data()
-    
-    print(f"📉 Test period: {test_data.index[0].strftime('%Y-%m-%d')} to {test_data.index[-1].strftime('%Y-%m-%d')}")
-    print(f"📈 Total test days: {len(test_data)}")
-    
-    # Test all models
-    results = {}
-    
-    # Enhanced Buy & Hold
-    results['Buy & Hold'] = test_buy_hold_enhanced(test_data)
-    
-    # Enhanced PPO
-    results['Enhanced PPO'] = test_enhanced_ppo(test_data)
-    if results['Enhanced PPO'] is None:
-        print("⚠️ Enhanced PPO not available, using benchmark")
-        results['Enhanced PPO'] = generate_dummy_lstm_results(test_data)
-    
-    # LSTM
-    results['LSTM'] = test_lstm_enhanced(test_data)
-    # Calculate activity for LSTM (trades per total days)
-    if results['LSTM'] and 'trades' in results['LSTM']:
-        results['LSTM']['activity'] = (results['LSTM']['trades'] / len(test_data)) * 100
-    
-    # Print results
-    print_icml_style_results(results)
-    
-    # Additional analysis
-    print(f"\n🎯 DETAILED ANALYSIS:")
+    print("✅ Multi-asset trading: BTC, S&P 500, Treasury Bonds")
+    print("✅ Tests across all periods: Train/Val/Test")
+    print("✅ Comprehensive portfolio allocation analysis")
+    print("✅ Key metrics: Total Return, Annual Return, Sharpe, Max Drawdown, Volatility")
     print("=" * 80)
     
-    for method, result in results.items():
-        print(f"\n📊 {method}:")
-        print(f"   📈 Total Return: {result['total_return']:.2f}%")
-        print(f"   📊 Annualized Return: {result['annual_return']:.2f}%")
-        print(f"   ⚡ Sharpe Ratio: {result['sharpe_ratio']:.3f}")
-        print(f"   📉 Max Drawdown: {result['max_drawdown']:.2f}%")
-        print(f"   📊 Volatility: {result['volatility']:.2f}%")
-        print(f"   🔄 Total Trades: {result['trades']}")
-        print(f"   🎯 Activity: {result['activity']:.1f}%")
+    # Define models to test
+    models_to_test = {
+        # 'PPO-T 30k': 'trained_models/multi_asset_transformer_ppo',
+        # 'PPO Bitcoin': 'trained_models/bitcoin_focused_ppo',
+        # 'LSTM': 'trained_models/lstm_multi_asset.pth',
+        'PPO 100k': 'trained_models/ppo_100k_training_steps',
+        # 'PPO 30k': 'trained_models/multi_asset_ppo_same_dates',
+    }
     
-    # S&P 500 benchmark comparison
-    sp500_return = float((test_data['Close'].iloc[-1] / test_data['Close'].iloc[0] - 1) * 100)
-    sp500_annual = float(((test_data['Close'].iloc[-1] / test_data['Close'].iloc[0]) ** (252 / len(test_data)) - 1) * 100)
+    # Run comparison
+    all_results = compare_across_periods(models_to_test)
     
-    print(f"\n📊 S&P 500 BENCHMARK (Test Period):")
-    print(f"   Total Return: {sp500_return:.2f}%")
-    print(f"   Annualized Return: {sp500_annual:.2f}%")
+    if not all_results:
+        print("❌ No results to compare")
+        return
     
-    # Create visualization
-    create_enhanced_comparison_plot(results, test_data)
+    # Create visualizations
+    create_comprehensive_visualization(all_results)
     
-    print(f"\n🎊 ENHANCED COMPARISON COMPLETE!")
-    print(f"📈 Results saved to 'results/enhanced_comparison_paper.png'")
-    print(f"🎯 All models tested on same unseen data (2019-2024)")
+    # Create summary table
+    create_summary_table(all_results)
+    
+    print(f"\n🎊 MULTI-ASSET COMPARISON COMPLETE!")
+    print(f"📊 Results saved to 'results/multi_asset_comparison.png'")
+    print(f"🎯 All models tested across Train (2010-2016), Val (2017-2018), Test (2019-2024)")
 
 if __name__ == "__main__":
     main() 

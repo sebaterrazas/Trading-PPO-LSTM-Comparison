@@ -282,6 +282,17 @@ class SimpleMultiAssetEnv(gym.Env):
         
         return obs
     
+    def get_all_observations(self):
+        """Get all observations for LSTM training"""
+        all_obs = []
+        
+        for step in range(self.data_length):
+            self.current_step = step
+            obs = self._get_observation()
+            all_obs.append(obs)
+        
+        return np.array(all_obs)
+    
     def step(self, action):
         if self.current_step >= self.data_length - 1:
             return self._get_observation(), 0, True, True, {}
@@ -537,8 +548,8 @@ def main():
     )
     
     # Train
-    print("\n🔥 Training (1,000,000 steps)...")
-    model.learn(total_timesteps=1_000_000, progress_bar=True)
+    print("\n🔥 Training (100,000 steps)...")
+    model.learn(total_timesteps=100_000, progress_bar=True)
     
     # Save
     model.save("trained_models/multi_asset_ppo_same_dates")

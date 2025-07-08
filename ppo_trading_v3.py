@@ -655,8 +655,8 @@ def main():
     print(f"   💡 Reward: Sharpe-like + diversification bonus")
     
     # Train
-    print("\n🔥 Training (1,000,000 steps)...")
-    model.learn(total_timesteps=1_000_000, progress_bar=True)
+    print("\n🔥 Training (30,000 steps)...")
+    model.learn(total_timesteps=30_000, progress_bar=True)
     
     # Save
     model.save("trained_models/multi_asset_transformer_ppo")
