@@ -793,7 +793,7 @@ def main():
     # Define models to test
     models_to_test = {
         # 'PPO-T 30k': 'trained_models/multi_asset_transformer_ppo',
-        # 'PPO Bitcoin': 'trained_models/bitcoin_focused_ppo',
+        # 'PPO Bitcoin': 'trained_models/bitcoin_focused_ppo_30k',
         # 'LSTM': 'trained_models/lstm_multi_asset.pth',
         'PPO 100k': 'trained_models/ppo_100k_training_steps',
         # 'PPO 30k': 'trained_models/multi_asset_ppo_same_dates',
