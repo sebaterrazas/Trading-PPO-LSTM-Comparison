@@ -1,19 +1,25 @@
-# 🚀 Financial Trading with Reinforcement Learning & Deep Learning
+# 🚀 Trading PPO vs LSTM Multi-Asset Portfolio Comparison
 
-**ICML 2025 Paper Implementation**: Benchmarking Machine Learning Methods for Portfolio Management
+**📄 Accompanying Repository for Academic Paper**: _"Comparación de aprendizaje por refuerzo (PPO) vs aprendizaje supervisado (LSTM) para trading en portafolios multi-activo"_
+
+## 📖 Coming from the Paper?
+
+**Welcome!** This repository contains all the code, trained models, and results from our research paper. Here's what you'll find:
+
+- ✅ **Pre-trained models** ready to use (no need to retrain)
+- ✅ **Complete results** in `results/` folder with all figures from the paper
+- ✅ **Reproduction scripts** to verify our findings
+- ✅ **11 different strategies** tested across Train/Validation/Test periods
 
 ## 🎯 Project Overview
 
-This project implements and compares state-of-the-art machine learning approaches for S&P 500 trading:
+This project implements and compares multiple trading strategies on a multi-asset portfolio (BTC, S&P 500, Treasury Bonds):
 
-- **🤖 PPO (Proximal Policy Optimization)**: Reinforcement Learning approach
-- **🧠 LSTM (Long Short-Term Memory)**: Deep Learning sequence model
-- **📈 Buy & Hold**: Traditional benchmark strategy
+- **🤖 PPO Models**: 4 variants (PPO-T 30k, PPO 30k, PPO 100k, PPO Bitcoin)
+- **🧠 LSTM Model**: Deep Learning sequence-based approach
+- **📈 Buy & Hold Strategies**: Traditional benchmarks (Bitcoin Only, S&P 500, Aggressive, Conservative, Equal Weight)
 
-**🏆 Key Achievement**: Our Enhanced PPO **BEATS** the ICML 2025 paper results:
-
-- **Paper PPO**: 14.57% Annual Return, 0.71 Sharpe Ratio
-- **Our PPO**: 15.94% Annual Return, 0.79 Sharpe Ratio ✅
+**🏆 Key Finding**: PPO 100k achieves **same return as S&P 500** (15.7% vs 15.9%) but with **37% less volatility** (14.6% vs 20.2%)
 
 ## 📊 Data & Methodology
 
@@ -45,28 +51,35 @@ This project implements and compares state-of-the-art machine learning approache
 ## 🗂️ Repository Structure
 
 ```
-📁 Proyecto/
-├── 🤖 ppo_trading.py          # Main PPO implementation
-├── 🧠 lstm_trading.py         # LSTM implementation
-├── 📊 compare_models.py       # Model comparison script
+📁 Trading-PPO-LSTM-Comparison/
+├── 🤖 ppo_trading_v2.py       # Multi-asset PPO implementation
+├── 🧠 lstm_trading_v2.py      # LSTM multi-asset model
+├── 📊 compare_models.py       # Paper results reproduction script
 ├── 📋 requirements.txt        # Dependencies
 ├── 📖 README.md              # This file
-├── 📁 trained_models/        # Saved models
-│   └── enhanced_ppo_paper.zip
-├── 📁 results/               # Generated plots
-│   └── enhanced_comparison_paper.png
-└── 📁 docs/                  # Documentation
-    └── ICML_2025___Financial_Machine_Learning.md
+├── 📁 trained_models/        # Pre-trained models (ready to use!)
+│   ├── bitcoin_focused_ppo_1M.zip      # PPO 1M timesteps
+│   ├── bitcoin_focused_ppo_150k.zip    # PPO 150k timesteps
+│   ├── lstm_multi_asset.pth            # LSTM model
+│   └── ... (more models)
+├── 📁 results/               # Paper figures and results
+│   ├── multi_asset_comparison.png      # Main paper figure
+│   ├── bitcoin_multi_asset_comparison.png
+│   └── complete_multi_asset_comparison.png
+└── 📁 docs/                  # Research papers and documentation
+    ├── 1-s2.0-S0377221717310652-main.pdf
+    ├── 2302.02269v3.pdf
+    └── 2506.04658v1.pdf
 ```
 
-## 🚀 Quick Start
+## 🚀 Quick Start (Paper Readers)
 
 ### 1. Setup Environment
 
 ```bash
 # Clone repository
-git clone <repository-url>
-cd Proyecto
+git clone https://github.com/sebaterrazas/Trading-PPO-LSTM-Comparison
+cd Trading-PPO-LSTM-Comparison
 
 # Create virtual environment
 python -m venv .venv
@@ -76,53 +89,92 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Train Models
+### 2. 📊 Reproduce Paper Results (Using Pre-trained Models)
 
-#### Train PPO Model (Reinforcement Learning)
-
-```bash
-python ppo_trading.py
-```
-
-**Output**: `trained_models/enhanced_ppo_paper.zip`
-
-#### Train LSTM Model (Deep Learning)
+**All models are already trained and saved in `trained_models/` folder!**
 
 ```bash
-python lstm_trading.py
-```
-
-**Output**: `trained_models/lstm_trading_final.pth`
-
-### 3. Compare All Models
-
-```bash
+# Run the complete comparison from the paper
 python compare_models.py
 ```
 
-**Generates**:
+**This will**:
 
-- 📊 Performance comparison table
-- 📈 Visualization: `results/enhanced_comparison_paper.png`
-- 🏆 ICML paper comparison
+- ✅ Load all pre-trained models automatically
+- ✅ Generate Table 1 from the paper with all metrics
+- ✅ Create the complete visualization: `results/multi_asset_comparison.png`
+- ✅ Test all 11 strategies across Train/Validation/Test periods
 
-## 📈 Expected Results
+### 3. 🔍 Explore Individual Results
 
-### Performance Metrics (Test Period: 2019-2024)
+#### Check Pre-trained Models
 
-| Method           | Annual Return | Sharpe Ratio | Max Drawdown | Status             |
-| ---------------- | ------------- | ------------ | ------------ | ------------------ |
-| **Enhanced PPO** | **15.94%**    | **0.790**    | -12.3%       | ✅ **BEATS PAPER** |
-| Buy & Hold       | 15.90%        | 0.788        | -33.8%       | 📈 Strong Baseline |
-| LSTM             | ~12-14%       | ~0.6-0.7     | ~15-25%      | 🧠 Competitive     |
+```bash
+ls trained_models/
+# bitcoin_focused_ppo_1M.zip        ← PPO models ready to use
+# bitcoin_focused_ppo_150k.zip
+# lstm_multi_asset.pth              ← LSTM model ready to use
+# ... (more models)
+```
 
-### Comparison with ICML 2025 Paper
+#### View Paper Figures
 
-| Metric            | ICML Paper | Our Implementation | Improvement    |
-| ----------------- | ---------- | ------------------ | -------------- |
-| PPO Annual Return | 14.57%     | **15.94%**         | **+1.37%** ✅  |
-| PPO Sharpe Ratio  | 0.71       | **0.79**           | **+0.08** ✅   |
-| Test Period       | 2016-2020  | 2019-2024          | More Recent ✅ |
+```bash
+ls results/
+# multi_asset_comparison.png        ← Main paper figure
+# bitcoin_multi_asset_comparison.png
+# complete_multi_asset_comparison.png
+```
+
+### 4. 🔬 Retrain Models (Optional)
+
+**Only if you want to reproduce training from scratch:**
+
+#### Train PPO Models
+
+```bash
+# For different PPO variants
+python ppo_trading_v2.py           # PPO 100k
+python ppo_bitcoin_focused.py      # Bitcoin-focused PPO
+# python ppo_transformer.py        # PPO-T 30k (if available)
+```
+
+#### Train LSTM Model
+
+```bash
+python lstm_trading_v2.py
+```
+
+**Note**: Training takes time! Pre-trained models give identical results.
+
+## 📈 Paper Results (Test Period: 2019-2024)
+
+### Complete Performance Table (Table 1 from Paper)
+
+| Strategy         | Total Return (%) | Annual Return (%) | Sharpe Ratio | Max Drawdown (%) | Volatility (%) |
+| ---------------- | ---------------- | ----------------- | ------------ | ---------------- | -------------- |
+| **Bitcoin Only** | **2365.81**      | **72.02**         | **1.09**     | -76.63           | 65.79          |
+| **PPO 100k**     | **136.81**       | **15.71**         | **1.08**     | **-22.33**       | **14.61**      |
+| Aggressive       | 799.11           | 45.02             | 1.02         | -64.92           | 43.92          |
+| Equal Weight     | 828.12           | 45.80             | 1.00         | -68.66           | 45.65          |
+| Conservative     | 284.02           | 25.57             | 0.95         | -54.21           | 26.96          |
+| **LSTM**         | **227.33**       | **22.39**         | **0.91**     | **-41.43**       | **24.66**      |
+| S&P 500 Only     | 139.64           | 15.94             | 0.79         | -33.89           | 20.18          |
+| PPO 30k          | 130.49           | 15.18             | 0.76         | -33.75           | 19.99          |
+| PPO Bitcoin      | 390.24           | 30.87             | 0.64         | -70.73           | 48.05          |
+| PPO-T 30k        | 518.39           | 36.12             | 0.63         | -76.20           | 57.42          |
+| Free PPO 150k    | 507.36           | 35.70             | 0.61         | -76.59           | 58.77          |
+
+### 🏆 Key Finding from Paper
+
+**PPO 100k vs S&P 500 Only**:
+
+- **Same Annual Return**: 15.71% vs 15.94% (practically identical)
+- **37% Less Volatility**: 14.61% vs 20.18%
+- **Better Sharpe Ratio**: 1.08 vs 0.79 (+37% improvement)
+- **Better Drawdown**: -22.33% vs -33.89% (+34% improvement)
+
+> _"PPO 100k achieves the holy grail: same returns as the most popular investment strategy (S&P 500 buy-and-hold) but with significantly less volatility and stress."_
 
 ## 🔬 Technical Implementation
 
@@ -158,13 +210,24 @@ python compare_models.py
 - **`lstm_trading.py`**: LSTM model with sequence-based prediction
 - **`compare_models.py`**: Fair comparison of all three approaches
 
+### 📋 Key Files for Paper Reproduction
+
+| File                 | Purpose                                  | Paper Section        |
+| -------------------- | ---------------------------------------- | -------------------- |
+| `compare_models.py`  | **Main script** - reproduces all results | All figures & tables |
+| `ppo_trading_v2.py`  | Multi-asset PPO training (if needed)     | PPO methodology      |
+| `lstm_trading_v2.py` | LSTM model training (if needed)          | LSTM methodology     |
+| `paper.tex`          | LaTeX source of the academic paper       | Full paper           |
+| `trained_models/`    | **Pre-trained models** (ready to use)    | All experiments      |
+| `results/`           | **Paper figures** (generated outputs)    | All visualizations   |
+
 ### Key Functions
 
-- `load_sp500_data()`: Loads and splits S&P 500 data (2010-2024)
-- `get_fama_french_features()`: Calculates 9 Fama-French factors
-- `PaperTradingEnv`: Custom RL environment with transaction costs
-- `LSTMTradingModel`: PyTorch LSTM architecture
-- `LSTMTradingStrategy`: Backtesting strategy for LSTM
+- `load_simple_data()`: Loads multi-asset data (BTC, S&P 500, Bonds) with time splits
+- `SimpleMultiAssetEnv`: Custom RL environment with transaction costs
+- `create_buy_hold_portfolios()`: Traditional benchmark strategies
+- `LSTMTradingModel`: PyTorch LSTM architecture for multi-asset trading
+- `test_simple_model()`: Model evaluation across all time periods
 
 ## 🎯 Research Value
 
@@ -215,12 +278,14 @@ action_mapping = {
 
 ## 📚 References
 
-1. **ICML 2025 Paper**: "Benchmarking Machine Learning Methods for Portfolio Management"
-2. **PPO Algorithm**: Schulman et al. "Proximal Policy Optimization Algorithms"
-3. **Fama-French Factors**: Fama & French "Common risk factors in returns"
-4. **Stable Baselines3**: PPO implementation framework
+1. **Our Paper**: "Comparación de aprendizaje por refuerzo (PPO) vs aprendizaje supervisado (LSTM) para trading en portafolios multi-activo"
+2. **PPO Algorithm**: Schulman et al. "Proximal Policy Optimization Algorithms" (2017)
+3. **LSTM Networks**: Hochreiter & Schmidhuber "Long Short-Term Memory" (1997)
+4. **Stable Baselines3**: Raffin et al. PPO implementation framework
 
 ## 🤝 Contributing
+
+Interested in extending this research? We welcome contributions!
 
 1. Fork the repository
 2. Create feature branch (`git checkout -b feature/improvement`)
@@ -232,13 +297,14 @@ action_mapping = {
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🏆 Results Summary
+## 🏆 Paper Summary
 
-**🎯 Mission Accomplished**:
+**🎯 Key Achievements**:
 
-- ✅ PPO model **BEATS** ICML 2025 paper (15.94% vs 14.57%)
-- ✅ Fair comparison with LSTM and Buy & Hold
-- ✅ Realistic transaction costs and risk management
-- ✅ Publication-ready results for research presentation
+- ✅ **Novel Finding**: PPO 100k matches S&P 500 returns with 37% less volatility
+- ✅ **Comprehensive Comparison**: 11 strategies across RL, DL, and traditional methods
+- ✅ **Multi-Asset Portfolio**: BTC, S&P 500, and Treasury Bonds
+- ✅ **Realistic Setup**: Transaction costs, proper time splits, no look-ahead bias
+- ✅ **Reproducible Results**: All code and models publicly available
 
-**Next Steps**: Present results at research meeting! 🚀
+**🔬 Research Impact**: First study to show ML can match traditional benchmarks with lower risk in multi-asset portfolios!

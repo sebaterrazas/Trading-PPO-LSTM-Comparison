@@ -39,33 +39,33 @@ def create_buy_hold_portfolios(data_dict):
         'BONDS': 0.0
     }
     
-    # # Strategy 2: Equal Weight
-    # portfolios['Equal Weight'] = {
-    #     'BTC': 0.333,
-    #     'SP500': 0.333,
-    #     'BONDS': 0.334
-    # }
+    # Strategy 2: Equal Weight
+    portfolios['Equal Weight'] = {
+        'BTC': 0.333,
+        'SP500': 0.333,
+        'BONDS': 0.334
+    }
     
-    # # Strategy 3: Conservative
-    # portfolios['Conservative'] = {
-    #     'BTC': 0.1,
-    #     'SP500': 0.4,
-    #     'BONDS': 0.5
-    # }
+    # Strategy 3: Conservative
+    portfolios['Conservative'] = {
+        'BTC': 0.1,
+        'SP500': 0.4,
+        'BONDS': 0.5
+    }
     
-    # # Strategy 4: Aggressive
-    # portfolios['Aggressive'] = {
-    #     'BTC': 0.3,
-    #     'SP500': 0.7,
-    #     'BONDS': 0.0
-    # }
+    # Strategy 4: Aggressive
+    portfolios['Aggressive'] = {
+        'BTC': 0.3,
+        'SP500': 0.7,
+        'BONDS': 0.0
+    }
 
-    # # Strategy 5: Bitcoin Only  
-    # portfolios['Bitcoin Only'] = {
-    #     'BTC': 1.0,
-    #     'SP500': 0.0,
-    #     'BONDS': 0.0
-    # }
+    # Strategy 5: Bitcoin Only  
+    portfolios['Bitcoin Only'] = {
+        'BTC': 1.0,
+        'SP500': 0.0,
+        'BONDS': 0.0
+    }
     
     return portfolios
 
@@ -792,11 +792,13 @@ def main():
     
     # Define models to test
     models_to_test = {
-        # 'PPO-T 30k': 'trained_models/multi_asset_transformer_ppo',
-        # 'PPO Bitcoin': 'trained_models/bitcoin_focused_ppo_30k',
-        # 'LSTM': 'trained_models/lstm_multi_asset.pth',
+        'PPO-T 30k': 'trained_models/multi_asset_transformer_ppo',
+        'PPO Bitcoin': 'trained_models/bitcoin_focused_ppo_30k',
+        'LSTM': 'trained_models/lstm_multi_asset.pth',
         'PPO 100k': 'trained_models/ppo_100k_training_steps',
-        # 'PPO 30k': 'trained_models/multi_asset_ppo_same_dates',
+        'PPO 30k': 'trained_models/multi_asset_ppo_same_dates',
+        # 'Free PPO 1M': 'trained_models/bitcoin_focused_ppo_1M.zip',
+        # 'Free PPO 150k': 'trained_models/bitcoin_focused_ppo_150k.zip',
     }
     
     # Run comparison
